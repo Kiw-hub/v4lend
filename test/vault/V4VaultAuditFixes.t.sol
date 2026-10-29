@@ -116,4 +116,26 @@ contract V4VaultAuditFixesTest is V4VaultLocalBase {
         _borrow(tokenId, 60e18);
         assertApproxEqRel(vault.dailyDebtIncreaseLimitLeft(), 40e18, 1e12, "quota sized from the funded pool");
     }
+
+    // ==================== Issue #61: clamp dailyDebtIncreaseLimitLeft on repay/liquidate ====================
+
+    function testRepayDoesNotInflateDailyDebtLimitBeyondCeiling() public {
+        _deposit(lender, 1000e18);
+        vault.setLimits(0, 1e30, 1e30, 1e30, 1);
+        oracle.setMockPositionValue(1000e18);
+        uint256 tokenId = _createLoan(10e18);
+        _borrow(tokenId, 50e18);
+
+        // Day starts with 10% daily debt limit = 100e18. Borrowed 50e18, so 50e18 left.
+        uint256 maxDebtLimit = vault.dailyDebtIncreaseLimitLeft() + 50e18;
+
+        // Repaying 50e18 should restore the quota to maxDebtLimit, not exceed it
+        vm.startPrank(borrower);
+        asset.mint(borrower, 50e18);
+        asset.approve(address(vault), 50e18);
+        vault.repay(tokenId, 50e18, false);
+        vm.stopPrank();
+
+        assertLe(vault.dailyDebtIncreaseLimitLeft(), maxDebtLimit, "quota must not exceed daily ceiling");
+    }
 }
